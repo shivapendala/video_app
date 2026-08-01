@@ -16,26 +16,62 @@ class VendorService {
   async createVendor({ company_name, contact_person, email, phone, password, address, created_by }) {
     try {
       const vendorCode = `VEN-${Math.floor(1000 + Math.random() * 9000)}`;
+      const cleanEmail = (email || '').trim().toLowerCase();
       const cleanPassword = password && password.trim() ? password.trim() : 'vendor123';
       const passwordHash = await bcrypt.hash(cleanPassword, 10);
 
-      // 1. Insert Vendor Record into PostgreSQL vendors table
+      // Ensure password_hash column exists on vendors table
+      await db.query('ALTER TABLE vendors ADD COLUMN IF NOT EXISTS password_hash VARCHAR(255);').catch(() => {});
+
+      // 1. Insert/Update Vendor Record into PostgreSQL vendors table
       const insertQuery = `
         INSERT INTO vendors (company_name, contact_person, email, phone, password_hash, vendor_code, is_active, created_at, updated_at)
         VALUES ($1, $2, $3, $4, $5, $6, TRUE, NOW(), NOW())
+        ON CONFLICT (email) DO UPDATE SET
+          password_hash = EXCLUDED.password_hash,
+          company_name = EXCLUDED.company_name,
+          contact_person = EXCLUDED.contact_person,
+          phone = EXCLUDED.phone,
+          is_active = TRUE,
+          updated_at = NOW()
         RETURNING id, vendor_code, company_name, contact_person, email, phone, is_active, created_at, updated_at
       `;
 
       const res = await db.query(insertQuery, [
         company_name,
         contact_person || company_name,
-        email,
+        cleanEmail,
         phone || '+91 98765 00000',
         passwordHash,
         vendorCode,
       ]);
 
       const vendor = res.rows[0];
+
+      // 2. Also store/sync vendor login details in users table
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS users (
+          id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+          email VARCHAR(255) UNIQUE NOT NULL,
+          password_hash VARCHAR(255) NOT NULL,
+          full_name VARCHAR(200) NOT NULL,
+          role VARCHAR(50) NOT NULL DEFAULT 'vendor',
+          is_active BOOLEAN NOT NULL DEFAULT TRUE,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+      `).catch(() => {});
+
+      await db.query(`
+        INSERT INTO users (id, email, password_hash, full_name, role, vendor_id, is_active, created_at, updated_at)
+        VALUES ($1, $2, $3, $4, 'vendor', $5, TRUE, NOW(), NOW())
+        ON CONFLICT (email) DO UPDATE SET
+          password_hash = EXCLUDED.password_hash,
+          full_name = EXCLUDED.full_name,
+          vendor_id = EXCLUDED.vendor_id,
+          is_active = TRUE,
+          updated_at = NOW()
+      `, [vendor.id, cleanEmail, passwordHash, company_name, vendor.id]).catch(() => {});
 
       // 2. Insert Audit Log Entry in audit_logs table
       await db.query(`
@@ -70,16 +106,8 @@ class VendorService {
 
       return vendor;
     } catch (err) {
-      logger.error('Error creating vendor', { error: err.message });
-      return {
-        id: `ven-${Date.now()}`,
-        company_name,
-        contact_person,
-        email,
-        phone,
-        vendor_code: `VEN-${Math.floor(1000 + Math.random() * 9000)}`,
-        is_active: true,
-      };
+      logger.error('Error creating vendor in PostgreSQL:', { error: err.message });
+      throw err;
     }
   }
 

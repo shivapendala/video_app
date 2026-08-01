@@ -66,7 +66,7 @@ class NotificationService {
         createdAt: notif.created_at,
       };
 
-      // 3. Broadcast Real-Time Stream Event to Connected SSE Clients
+      // 3. Broadcast Real-Time Stream Event to Connected SSE & Socket.io Clients
       this.broadcastToClients(payload);
 
       return notif;
@@ -77,9 +77,27 @@ class NotificationService {
   }
 
   /**
-   * Broadcast real-time payload to active SSE stream clients
+   * Register Socket.io Server instance
+   */
+  setSocketIO(io) {
+    this.io = io;
+  }
+
+  /**
+   * Broadcast real-time payload to active SSE stream clients and Socket.io clients
    */
   broadcastToClients(payload) {
+    // 1. Socket.io push broadcast
+    if (this.io) {
+      try {
+        this.io.emit('notification:new', payload);
+        this.io.emit('notification', payload);
+      } catch (e) {
+        logger.warn('Socket.io emit error', { error: e.message });
+      }
+    }
+
+    // 2. SSE push broadcast
     const dataStr = `data: ${JSON.stringify(payload)}\n\n`;
     for (const clientRes of sseClients) {
       try {

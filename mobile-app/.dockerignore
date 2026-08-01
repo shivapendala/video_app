@@ -1,0 +1,10 @@
+.dart_tool/
+.git/
+.gitignore
+!build/web
+ios/
+android/
+windows/
+macos/
+linux/
+README.md

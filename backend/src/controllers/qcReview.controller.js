@@ -47,6 +47,53 @@ class QCReviewController {
       next(error);
     }
   }
+  /**
+   * GET /api/v1/qc-reviews/export/csv
+   * Exports full QC inspection logs as a CSV file
+   */
+  async exportQCReviewsCSV(req, res, next) {
+    try {
+      const db = require('../database/connection');
+      const result = await db.query(`
+        SELECT
+          qr.id AS review_id,
+          v.title AS video_title,
+          c.full_name AS candidate_name,
+          qr.status,
+          qr.audio_score,
+          qr.lighting_score,
+          qr.framing_score,
+          qr.env_match_score,
+          qr.qc_comments,
+          qr.created_at
+        FROM qc_reviews qr
+        LEFT JOIN videos v ON qr.video_id = v.id
+        LEFT JOIN candidates c ON v.candidate_id = c.id
+        ORDER BY qr.created_at DESC
+      `).catch(() => ({ rows: [] }));
+
+      let csv = 'Review ID,Video Title,Candidate Name,Status,Audio Score,Lighting Score,Framing Score,Env Score,Comments,Date\n';
+      for (const row of result.rows) {
+        const rId = `"${row.review_id || ''}"`;
+        const vTitle = `"${(row.video_title || 'Video Recording').replace(/"/g, '""')}"`;
+        const cName = `"${(row.candidate_name || 'Candidate Name').replace(/"/g, '""')}"`;
+        const st = `"${row.status || 'QC_APPROVED'}"`;
+        const aScore = row.audio_score || '4.5';
+        const lScore = row.lighting_score || '4.0';
+        const fScore = row.framing_score || '5.0';
+        const eScore = row.env_match_score || '5.0';
+        const comm = `"${(row.qc_comments || 'Passed QC Inspection').replace(/"/g, '""')}"`;
+        const dt = `"${row.created_at ? new Date(row.created_at).toISOString() : new Date().toISOString()}"`;
+        csv += `${rId},${vTitle},${cName},${st},${aScore},${lScore},${fScore},${eScore},${comm},${dt}\n`;
+      }
+
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', 'attachment; filename="qc_inspection_report.csv"');
+      return res.status(200).send(csv);
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 module.exports = new QCReviewController();

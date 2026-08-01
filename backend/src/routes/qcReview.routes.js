@@ -10,6 +10,9 @@ const { authenticateJWT } = require('../middleware/auth.middleware');
 const { requireRole } = require('../middleware/role.middleware');
 const { validateCreateQCReview } = require('../validators/qcReview.validator');
 
+// GET /api/v1/qc-reviews/export/csv - Export QC Inspection Log CSV
+router.get('/export/csv', (req, res, next) => qcReviewController.exportQCReviewsCSV(req, res, next));
+
 // Protect all QC review routes with JWT authentication & require admin or qc_team role
 router.use(authenticateJWT, requireRole('admin', 'qc_team', 'qc'));
 

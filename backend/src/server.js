@@ -14,15 +14,36 @@ const logger = require('./utils/logger');
 const db = require('./database/connection');
 const { startQCScheduler } = require('./jobs/qcScheduler');
 
+const http = require('http');
+const { Server } = require('socket.io');
+const notificationService = require('./services/notification.service');
+
 const PORT = config.port;
 
 async function startServer() {
   // 4. Test database connection
   await db.connectDB();
 
-  // 5. Start Express HTTP server
-  const server = app.listen(PORT, () => {
-    logger.info(`Server running in ${config.nodeEnv} mode on port ${PORT}`);
+  // 5. Create HTTP Server & Attach Socket.io
+  const server = http.createServer(app);
+  const io = new Server(server, {
+    cors: {
+      origin: '*',
+      methods: ['GET', 'POST', 'PUT', 'DELETE'],
+    },
+  });
+
+  notificationService.setSocketIO(io);
+
+  io.on('connection', (socket) => {
+    logger.info(`⚡ Socket.io client connected: ${socket.id}`);
+    socket.on('disconnect', () => {
+      logger.info(`🔌 Socket.io client disconnected: ${socket.id}`);
+    });
+  });
+
+  server.listen(PORT, () => {
+    logger.info(`Server running in ${config.nodeEnv} mode on port ${PORT} with Socket.io WebSockets enabled`);
     startQCScheduler();
   });
 

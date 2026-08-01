@@ -6,24 +6,26 @@ const { Pool } = require('pg');
 const config = require('../config');
 const logger = require('../utils/logger');
 
-const poolConfig = config.database.url
+const useSSL = process.env.DB_SSL === 'true';
+
+const poolConfig = process.env.DATABASE_URL
   ? {
-      connectionString: config.database.url,
-      ssl: { rejectUnauthorized: false },
-      max: 20,
+      connectionString: process.env.DATABASE_URL,
+      max: 30,
       idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 5000,
+      connectionTimeoutMillis: 10000,
+      ssl: useSSL ? { rejectUnauthorized: false } : false,
     }
   : {
-      host: config.database.host,
-      port: config.database.port,
-      database: config.database.name,
-      user: config.database.user,
-      password: config.database.password,
-      ssl: config.database.ssl ? { rejectUnauthorized: false } : false,
-      max: 20,
+      host: process.env.DB_HOST || 'postgres',
+      port: parseInt(process.env.DB_PORT, 10) || 5432,
+      database: process.env.DB_NAME || 'videoplatform',
+      user: process.env.DB_USER || 'postgres',
+      password: process.env.DB_PASSWORD || 'postgrespassword',
+      max: 30,
       idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 5000,
+      connectionTimeoutMillis: 10000,
+      ssl: useSSL ? { rejectUnauthorized: false } : false,
     };
 
 const pool = new Pool(poolConfig);

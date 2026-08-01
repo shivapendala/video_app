@@ -9,6 +9,11 @@ class ApiConstants {
   static String get baseUrl {
     if (kIsWeb) {
       final host = Uri.base.host.isNotEmpty ? Uri.base.host : 'localhost';
+      final scheme = Uri.base.scheme.isNotEmpty ? Uri.base.scheme : 'http';
+      if (host != 'localhost' && host != '127.0.0.1') {
+        // Dedicated Subpath Deployment (e.g. elevateiq-softtech.com/video-platform/)
+        return '$scheme://$host/video-platform-api';
+      }
       return 'http://$host:5000';
     }
     if (defaultTargetPlatform == TargetPlatform.android) {

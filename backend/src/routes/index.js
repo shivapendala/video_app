@@ -210,15 +210,15 @@ router.get('/', (req, res) => {
 
     <div class="grid">
       <!-- Mobile App Info -->
-      <a href="http://localhost:8080" target="_blank" class="card">
+      <a href="http://localhost:8081" target="_blank" class="card">
         <div>
           <div class="icon-wrapper icon-mobile">📱</div>
           <h2>Flutter Mobile App <span class="arrow">→</span></h2>
           <p>Multi-role Mobile Application for Candidates, Vendors, and Admins running live in web preview mode.</p>
         </div>
         <div class="card-footer">
-          <span>Port 8080</span>
-          <span class="port-tag">http://localhost:8080</span>
+          <span>Port 8081</span>
+          <span class="port-tag">http://localhost:8081</span>
         </div>
       </a>
 
@@ -251,7 +251,7 @@ router.get('/', (req, res) => {
     version: '1.0.0',
     documentation: '/api/v1',
     portals: {
-      mobile_app: 'http://localhost:8080',
+      mobile_app: 'http://localhost:8081',
       api_explorer: 'http://localhost:5000/api/v1'
     }
   });
@@ -290,11 +290,5 @@ router.use('/api/v1/qc-reviews', qcReviewRoutes);
 router.use('/api/v1/qc-tickets', qcTicketRoutes);
 router.use('/api/v1/payments', paymentRoutes);
 router.use('/api/v1/notifications', notificationRoutes);
-
-// Root Alias Fallbacks for direct endpoint calls
-router.use('/notifications', notificationRoutes);
-router.use('/vendors', vendorRoutes);
-router.use('/candidates', candidateRoutes);
-router.use('/videos', videoRoutes);
 
 module.exports = router;

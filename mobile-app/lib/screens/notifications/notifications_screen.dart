@@ -1,6 +1,8 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'dart:html' as html;
 import '../../core/constants/api_constants.dart';
 import '../../core/theme/app_colors.dart';
 import '../../services/auth_service.dart';
@@ -14,40 +16,26 @@ class NotificationsScreen extends StatefulWidget {
 
 class _NotificationsScreenState extends State<NotificationsScreen> {
   bool _isLoading = false;
-  List<Map<String, dynamic>> _notifications = [
-    {
-      'id': 'notif-1',
-      'title': 'Video Uploaded & Pending QC',
-      'desc': 'Your video clip is in queue for Quality Control inspection.',
-      'time': 'Just now',
-      'icon': Icons.hourglass_top_rounded,
-      'color': const Color(0xFFF59E0B),
-      'read': false,
-    },
-    {
-      'id': 'notif-2',
-      'title': 'QC Passed - Forwarded to Admin',
-      'desc': 'Your video passed Quality Check and is awaiting Admin final sign-off.',
-      'time': '10 min ago',
-      'icon': Icons.verified_rounded,
-      'color': const Color(0xFF8B5CF6),
-      'read': false,
-    },
-    {
-      'id': 'notif-3',
-      'title': 'Video Approved! 🎉',
-      'desc': 'Congratulations! Your video was approved by Admin. Vendor payout credited.',
-      'time': '1 hour ago',
-      'icon': Icons.check_circle_rounded,
-      'color': const Color(0xFF10B981),
-      'read': true,
-    },
-  ];
+  List<Map<String, dynamic>> _notifications = [];
 
   @override
   void initState() {
     super.initState();
     _fetchRealNotifications();
+    _subscribeBroadcastChannel();
+  }
+
+  void _subscribeBroadcastChannel() {
+    if (kIsWeb) {
+      try {
+        final bc = html.BroadcastChannel('platform_realtime_channel');
+        bc.onMessage.listen((event) {
+          if (mounted) {
+            _fetchRealNotifications();
+          }
+        });
+      } catch (_) {}
+    }
   }
 
   Future<void> _fetchRealNotifications() async {
@@ -55,7 +43,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     try {
       final headers = await AuthService.getAuthHeaders();
       final url = Uri.parse('${ApiConstants.baseUrl}/api/v1/notifications');
-      final res = await http.get(url, headers: headers).timeout(const Duration(seconds: 4));
+      final res = await http.get(url, headers: headers).timeout(const Duration(seconds: 3));
 
       if (res.statusCode == 200) {
         final body = jsonDecode(res.body);
@@ -98,9 +86,55 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         }
       }
     } catch (_) {
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
     }
+
+    if (kIsWeb) {
+      try {
+        final raw = html.window.localStorage['platform_candidate_notifications'];
+        if (raw != null) {
+          final List<dynamic> localNotifs = jsonDecode(raw);
+          if (localNotifs.isNotEmpty) {
+            final List<Map<String, dynamic>> parsedList = [];
+            for (var item in localNotifs) {
+              final type = (item['type'] ?? '').toString();
+              Color notifColor = const Color(0xFF10B981);
+              IconData notifIcon = Icons.notifications_rounded;
+
+              if (type.contains('qc_approved')) {
+                notifColor = const Color(0xFF8B5CF6);
+                notifIcon = Icons.verified_rounded;
+              } else if (type.contains('qc_rejected')) {
+                notifColor = const Color(0xFFEF4444);
+                notifIcon = Icons.cancel_rounded;
+              } else if (type.contains('admin_approved')) {
+                notifColor = const Color(0xFF10B981);
+                notifIcon = Icons.check_circle_rounded;
+              } else if (type.contains('admin_rejected')) {
+                notifColor = const Color(0xFFEF4444);
+                notifIcon = Icons.error_rounded;
+              }
+
+              parsedList.add({
+                'id': item['id'] ?? 'notif-${DateTime.now().millisecondsSinceEpoch}',
+                'title': item['title'] ?? 'Notification',
+                'desc': item['desc'] ?? item['message'] ?? '',
+                'time': item['time'] ?? 'Just now',
+                'icon': notifIcon,
+                'color': notifColor,
+                'read': item['read'] ?? false,
+              });
+            }
+            if (mounted) {
+              setState(() {
+                _notifications = parsedList;
+              });
+            }
+          }
+        }
+      } catch (_) {}
+    }
+
+    if (mounted) setState(() => _isLoading = false);
   }
 
   Future<void> _markAllRead() async {

@@ -1,6 +1,8 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'dart:html' as html;
 import '../../core/constants/api_constants.dart';
 import '../../core/theme/app_colors.dart';
 import '../../config/routes/app_routes.dart';
@@ -27,102 +29,38 @@ class _MobileQCDashboardScreenState extends State<MobileQCDashboardScreen> {
   final TextEditingController _rejectReasonCtrl = TextEditingController();
 
   Map<String, dynamic> _statistics = {
-    'total_assigned': 3,
-    'pending_review': 2,
-    'in_review': 1,
-    'approved': 1,
+    'total_assigned': 0,
+    'pending_review': 0,
+    'in_review': 0,
+    'approved': 0,
     'rejected': 0,
-    'completed_today': 1,
+    'completed_today': 0,
   };
 
-  List<Map<String, dynamic>> _myTickets = [
-    {
-      'id': 'TKT-10001',
-      'ticket_code': 'TKT-10001',
-      'video_id': 'VID-401',
-      'video_title': 'Kitchen Workflow Clip',
-      'candidate_name': 'Anji (Candidate)',
-      'vendor_name': 'ABC Solutions',
-      'project_id': 'PRJ-AUDIO-01',
-      'environment_tag': 'Kitchen',
-      'duration': 32,
-      'upload_date': '2026-07-30T10:15:00Z',
-      'status': 'pending_qc',
-      'assigned_reviewer_name': 'QC Reviewer Specialist',
-    },
-    {
-      'id': 'TKT-10002',
-      'ticket_code': 'TKT-10002',
-      'video_id': 'VID-402',
-      'video_title': 'Living Room Pan Stream',
-      'candidate_name': 'Alex Johnson',
-      'vendor_name': 'PQR Enterprises',
-      'project_id': 'PRJ-VISION-02',
-      'environment_tag': 'Living Room',
-      'duration': 45,
-      'upload_date': '2026-07-30T11:20:00Z',
-      'status': 'pending_qc',
-      'assigned_reviewer_name': 'QC Reviewer Specialist',
-    },
-  ];
-
-  List<Map<String, dynamic>> _inReviewTickets = [
-    {
-      'id': 'TKT-10003',
-      'ticket_code': 'TKT-10003',
-      'video_id': 'VID-403',
-      'video_title': 'Office Desk Motion Test',
-      'candidate_name': 'Priya Sharma',
-      'vendor_name': 'LMN Groups',
-      'project_id': 'PRJ-DESK-03',
-      'environment_tag': 'Office',
-      'duration': 60,
-      'upload_date': '2026-07-30T09:00:00Z',
-      'status': 'in_review',
-      'assigned_reviewer_name': 'QC Reviewer Specialist',
-    },
-  ];
-
-  List<Map<String, dynamic>> _qcApprovedList = [
-    {
-      'id': 'TKT-10000',
-      'ticket_code': 'TKT-10000',
-      'video_id': 'VID-399',
-      'video_title': 'Bedroom Lighting Angle',
-      'candidate_name': 'Rahul Kumar',
-      'vendor_name': 'ABC Solutions',
-      'project_id': 'PRJ-LIGHTING-01',
-      'environment_tag': 'Bedroom',
-      'duration': 28,
-      'upload_date': '2026-07-30T08:00:00Z',
-      'status': 'qc_approved',
-      'assigned_reviewer_name': 'QC Reviewer Specialist',
-    },
-  ];
-
-  List<Map<String, dynamic>> _qcRejectedList = [
-    {
-      'id': 'TKT-9999',
-      'ticket_code': 'TKT-9999',
-      'video_id': 'VID-398',
-      'video_title': 'Garden Walkthrough',
-      'candidate_name': 'Kiran Patel',
-      'vendor_name': 'LMN Groups',
-      'project_id': 'PRJ-OUTDOOR-02',
-      'environment_tag': 'Garden',
-      'duration': 15,
-      'upload_date': '2026-07-30T07:30:00Z',
-      'status': 'qc_rejected',
-      'assigned_reviewer_name': 'QC Reviewer Specialist',
-      'reason': 'Audio level too low; framing off-center',
-    },
-  ];
+  List<Map<String, dynamic>> _myTickets = [];
+  List<Map<String, dynamic>> _inReviewTickets = [];
+  List<Map<String, dynamic>> _qcApprovedList = [];
+  List<Map<String, dynamic>> _qcRejectedList = [];
 
   @override
   void initState() {
     super.initState();
     _fetchRealQCData();
+    _subscribeBroadcastChannel();
     _pingActivityHeartbeat();
+  }
+
+  void _subscribeBroadcastChannel() {
+    if (kIsWeb) {
+      try {
+        final bc = html.BroadcastChannel('platform_realtime_channel');
+        bc.onMessage.listen((event) {
+          if (mounted) {
+            _fetchRealQCData();
+          }
+        });
+      } catch (_) {}
+    }
   }
 
   @override
@@ -135,7 +73,7 @@ class _MobileQCDashboardScreenState extends State<MobileQCDashboardScreen> {
     try {
       final session = await AuthService.restoreSession();
       final reviewerId = session?['id'] ?? 'q0000000-0000-0000-0000-000000000001';
-      final url = Uri.parse('${ApiConstants.baseUrl}/qc-tickets/tickets/reviewer-activity');
+      final url = Uri.parse('${ApiConstants.baseUrl}/api/v1/qc-tickets/tickets/reviewer-activity');
       await http.post(
         url,
         headers: {'Content-Type': 'application/json'},
@@ -148,32 +86,111 @@ class _MobileQCDashboardScreenState extends State<MobileQCDashboardScreen> {
   }
 
   Future<void> _fetchRealQCData() async {
+    if (!mounted) return;
     setState(() => _isLoading = true);
     try {
       final session = await AuthService.restoreSession();
       final reviewerId = session?['id'] ?? 'q0000000-0000-0000-0000-000000000001';
-      final url = Uri.parse('${ApiConstants.baseUrl}/qc-tickets/tickets/my-tickets?reviewer_id=$reviewerId');
-      final res = await http.get(url).timeout(const Duration(seconds: 4));
+      final userEmail = (session?['email'] ?? '').toString().toLowerCase();
+      final userName = (session?['name'] ?? session?['username'] ?? '').toString().toLowerCase();
 
-      if (res.statusCode == 200) {
-        final body = jsonDecode(res.body);
-        if (body['data'] != null && body['data'] is List) {
-          final List rawList = body['data'];
-          final parsed = List<Map<String, dynamic>>.from(rawList);
-          setState(() {
-            _myTickets = parsed.where((t) => t['status'] == 'pending_qc').toList();
-            _inReviewTickets = parsed.where((t) => t['status'] == 'in_review').toList();
-            _qcApprovedList = parsed.where((t) => t['status'] == 'qc_approved').toList();
-            _qcRejectedList = parsed.where((t) => t['status'] == 'qc_rejected').toList();
+      final Set<String> processedIds = {};
+      final List<Map<String, dynamic>> fetchedPending = [];
+      final List<Map<String, dynamic>> fetchedInReview = [];
+      final List<Map<String, dynamic>> fetchedApproved = [];
+      final List<Map<String, dynamic>> fetchedRejected = [];
 
-            if (body['statistics'] != null) {
-              _statistics = Map<String, dynamic>.from(body['statistics']);
+      try {
+        final url = Uri.parse('${ApiConstants.baseUrl}/api/v1/qc-tickets/tickets/my-tickets?reviewer_id=$reviewerId');
+        final res = await http.get(url).timeout(const Duration(seconds: 3));
+
+        if (res.statusCode == 200) {
+          final body = jsonDecode(res.body);
+          if (body['data'] != null && body['data'] is List) {
+            final List rawList = body['data'];
+            for (var t in rawList) {
+              final id = (t['id'] ?? t['ticket_code'] ?? '').toString();
+              if (id.isNotEmpty) processedIds.add(id);
+              final st = (t['status'] ?? 'pending_qc').toString().toLowerCase();
+              final map = Map<String, dynamic>.from(t);
+              if (st == 'in_review') fetchedInReview.add(map);
+              else if (st == 'qc_approved') fetchedApproved.add(map);
+              else if (st == 'qc_rejected') fetchedRejected.add(map);
+              else fetchedPending.add(map);
             }
-          });
+          }
+        }
+      } catch (e) {
+        debugPrint('QC Tickets API offline fallback: $e');
+      }
+
+      // Also read Web LocalStorage platform_qc_submissions for live Web updates
+      if (kIsWeb) {
+        try {
+          final raw = html.window.localStorage['platform_qc_submissions'];
+          if (raw != null) {
+            final List<dynamic> list = jsonDecode(raw);
+            for (var item in list) {
+              final id = (item['id'] ?? item['raw_id'] ?? '').toString();
+              if (id.isNotEmpty && processedIds.contains(id)) continue;
+
+              final title = (item['title'] ?? '').toString().toLowerCase();
+              final cName = (item['candidateName'] ?? item['candidate_name'] ?? '').toString().toLowerCase();
+              final vName = (item['vendor'] ?? item['vendor_name'] ?? '').toString().toLowerCase();
+
+              // Skip synthetic/mock test items
+              if (title.contains('test') || cName.contains('test candidate') || vName.contains('test vendor')) {
+                continue;
+              }
+
+              final assignedTo = (item['assignedTo'] ?? item['assigned_to'] ?? '').toString();
+              final st = (item['status'] ?? 'Pending').toString().toLowerCase();
+
+              // Check if video is assigned to QC Team
+              final isAssigned = assignedTo.isNotEmpty && assignedTo != 'Unassigned';
+
+              if (isAssigned) {
+                if (id.isNotEmpty) processedIds.add(id);
+                final formattedTicket = {
+                  'id': id.isNotEmpty ? id : 'TKT-001',
+                  'ticket_code': id.isNotEmpty ? id : 'TKT-001',
+                  'title': item['title'] ?? 'Candidate Video Recording',
+                  'candidate_name': item['candidateName'] ?? item['candidate_name'] ?? 'Candidate',
+                  'vendor_name': item['vendor'] ?? item['vendor_name'] ?? 'Acme Video Solutions',
+                  'duration': item['duration'] ?? '15 Mins',
+                  'environment_tag': item['env'] ?? 'Indoor',
+                  'audio_score': item['score'] ?? 95,
+                  'status': st.contains('approved') ? 'qc_approved' : (st.contains('reject') ? 'qc_rejected' : (st.contains('review') ? 'in_review' : 'pending_qc')),
+                  'assigned_to': assignedTo,
+                };
+
+                if (st.contains('approved')) fetchedApproved.add(formattedTicket);
+                else if (st.contains('reject')) fetchedRejected.add(formattedTicket);
+                else if (st.contains('review')) fetchedInReview.add(formattedTicket);
+                else fetchedPending.add(formattedTicket);
+              }
+            }
+          }
+        } catch (err) {
+          debugPrint('LocalStorage QC parse error: $err');
         }
       }
-    } catch (e) {
-      debugPrint('QC Tickets API offline fallback: $e');
+
+      if (mounted) {
+        setState(() {
+          _myTickets = fetchedPending;
+          _inReviewTickets = fetchedInReview;
+          _qcApprovedList = fetchedApproved;
+          _qcRejectedList = fetchedRejected;
+
+          _statistics['total_assigned'] = _myTickets.length + _inReviewTickets.length + _qcApprovedList.length + _qcRejectedList.length;
+          _statistics['pending_review'] = _myTickets.length;
+          _statistics['in_review'] = _inReviewTickets.length;
+          _statistics['approved'] = _qcApprovedList.length;
+          _statistics['rejected'] = _qcRejectedList.length;
+          _statistics['completed_today'] = _qcApprovedList.length + _qcRejectedList.length;
+        });
+      }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -192,7 +209,7 @@ class _MobileQCDashboardScreenState extends State<MobileQCDashboardScreen> {
     final newStatus = isApproved ? 'qc_approved' : 'qc_rejected';
 
     try {
-      final url = Uri.parse('${ApiConstants.baseUrl}/qc-tickets/tickets/$ticketId/status');
+      final url = Uri.parse('${ApiConstants.baseUrl}/api/v1/qc-tickets/tickets/$ticketId/status');
       await http.patch(
         url,
         headers: {'Content-Type': 'application/json'},
@@ -200,8 +217,78 @@ class _MobileQCDashboardScreenState extends State<MobileQCDashboardScreen> {
           'status': newStatus,
           'reason': reason,
         }),
-      );
+      ).timeout(const Duration(seconds: 2));
     } catch (_) {}
+
+    if (kIsWeb) {
+      try {
+        final raw = html.window.localStorage['platform_qc_submissions'];
+        List<dynamic> list = [];
+        if (raw != null) {
+          list = jsonDecode(raw);
+        }
+
+        bool found = false;
+        for (int i = 0; i < list.length; i++) {
+          final idMatch = list[i]['id'] == ticketId ||
+              list[i]['raw_id'] == ticketId ||
+              list[i]['ticket_code'] == ticketId ||
+              list[i]['title'] == item['video_title'] ||
+              list[i]['title'] == item['title'];
+          if (idMatch) {
+            list[i]['status'] = newStatus;
+            if (!isApproved) list[i]['reason'] = reason;
+            found = true;
+            break;
+          }
+        }
+
+        if (!found) {
+          list.insert(0, {
+            'id': ticketId ?? 'VID-${DateTime.now().millisecondsSinceEpoch}',
+            'raw_id': ticketId,
+            'title': item['video_title'] ?? item['title'] ?? 'Candidate Dataset Recording',
+            'candidateName': item['candidate_name'] ?? item['candidateName'] ?? 'Rahul Sharma (CAN-001)',
+            'vendor': item['vendor_name'] ?? item['vendor'] ?? 'Acme Video Solutions',
+            'duration': '${item['duration'] ?? 15} Mins',
+            'score': 98,
+            'status': newStatus,
+            'reason': !isApproved ? reason : null,
+            'assignedTo': 'QC Team Reviewer',
+          });
+        }
+
+        html.window.localStorage['platform_qc_submissions'] = jsonEncode(list);
+
+        // Save Candidate Notification
+        final rawNotifs = html.window.localStorage['platform_candidate_notifications'];
+        List<dynamic> notifList = [];
+        if (rawNotifs != null) {
+          notifList = jsonDecode(rawNotifs);
+        }
+        final notifTitle = isApproved ? '✓ QC Team Approved Your Video' : '✕ QC Team Rejected Your Video';
+        final notifDesc = isApproved
+            ? 'QC Team approved your video recording "${item['video_title'] ?? item['title'] ?? 'Video'}". It has been sent to Admin for final approval.'
+            : 'QC Team rejected your video recording "${item['video_title'] ?? item['title'] ?? 'Video'}". Reason: $reason';
+        
+        notifList.insert(0, {
+          'id': 'notif-qc-${DateTime.now().millisecondsSinceEpoch}',
+          'title': notifTitle,
+          'message': notifDesc,
+          'desc': notifDesc,
+          'time': 'Just now',
+          'type': newStatus,
+          'read': false,
+        });
+        html.window.localStorage['platform_candidate_notifications'] = jsonEncode(notifList);
+
+        final bc = html.BroadcastChannel('platform_realtime_channel');
+        bc.postMessage({'type': 'QC_STATUS_UPDATED', 'payload': list});
+        bc.close();
+      } catch (e) {
+        debugPrint('QC submission error: $e');
+      }
+    }
 
     setState(() {
       _myTickets.removeWhere((i) => i['id'] == ticketId || i['ticket_code'] == ticketId);

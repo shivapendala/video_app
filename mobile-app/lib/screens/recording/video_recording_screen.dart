@@ -15,6 +15,7 @@ import '../../services/voice_command_service.dart';
 import '../../services/compression_service.dart';
 import '../../services/upload_service.dart';
 import '../../services/device_service.dart';
+import '../../services/auth_service.dart';
 import '../../widgets/web_camera_view.dart';
 
 class VideoRecordingScreen extends StatefulWidget {
@@ -133,17 +134,10 @@ class _VideoRecordingScreenState extends State<VideoRecordingScreen> {
         setState(() {
           _elapsedSeconds++;
         });
-        // Auto-stop at 30 minutes
+        // Auto-stop at 30 minutes and trigger Alert Buzzer modal
         if (_elapsedSeconds >= maxRecordingSeconds) {
           _stopRecording();
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('⏱️ Maximum 30-minute recording limit reached. Video saved automatically.'),
-              backgroundColor: Color(0xFFF59E0B),
-              behavior: SnackBarBehavior.floating,
-              duration: Duration(seconds: 4),
-            ),
-          );
+          _show30MinBuzzerAlert();
         }
       }
     });
@@ -156,6 +150,47 @@ class _VideoRecordingScreenState extends State<VideoRecordingScreen> {
 
   void _stopTimer() {
     _timer?.cancel();
+  }
+
+  void _show30MinBuzzerAlert() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: const [
+            Icon(Icons.notifications_active_rounded, color: Color(0xFFDC2626), size: 28),
+            SizedBox(width: 10),
+            Expanded(
+              child: Text('30-MIN LIMIT REACHED! 🔔', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFFDC2626))),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: const [
+            Text(
+              'Maximum 30 minutes video recording limit reached.',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF0F172A)),
+            ),
+            SizedBox(height: 8),
+            Text(
+              'The recorded video clip has been automatically saved locally on your mobile device storage (1080p, H.264/H.265) before uploading to the server.',
+              style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+            ),
+          ],
+        ),
+        actions: [
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx),
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFDC2626)),
+            child: const Text('OK, View Saved Video', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _startRecording() async {
@@ -188,9 +223,14 @@ class _VideoRecordingScreenState extends State<VideoRecordingScreen> {
     });
 
     XFile? file;
-    if (_controller != null && _controller!.value.isRecordingVideo) {
+    if (_controller != null) {
       try {
-        file = await _controller!.stopVideoRecording();
+        if (_controller!.value.isRecordingVideo) {
+          file = await _controller!.stopVideoRecording();
+        }
+        await _controller?.pausePreview();
+        await _controller?.dispose();
+        _controller = null;
       } catch (e) {
         debugPrint('Error stopping hardware recording: $e');
       }
@@ -218,13 +258,176 @@ class _VideoRecordingScreenState extends State<VideoRecordingScreen> {
       locationError = 'GPS unavailable: ${e.toString().replaceAll('Exception: ', '')}';
     }
 
-    // Step 1: Compress video file on device before upload
+    if (mounted) {
+      setState(() {
+        _recordedFile = file;
+        _currentPosition = pos;
+        _locationErrorMessage = locationError;
+        _isFetchingLocation = false;
+      });
+
+      // Prompt user whether to Upload Now or Keep in Draft
+      _showPostRecordingDialog(file, size, pos, locationError);
+    }
+  }
+
+  void _showPostRecordingDialog(XFile file, int fileSize, Position? pos, String? locationError) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogCtx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: const [
+            Icon(Icons.video_library_rounded, color: Color(0xFF2563EB), size: 26),
+            SizedBox(width: 10),
+            Expanded(
+              child: Text('Recording Complete! 🎬', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Your video clip was captured. Would you like to upload it now to the server or keep it in drafts?',
+              style: TextStyle(fontSize: 13, color: Color(0xFF64748B)),
+            ),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF8FAFC),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFFE2E8F0)),
+              ),
+              child: Column(
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('Duration:', style: TextStyle(fontSize: 12, color: Color(0xFF64748B))),
+                      Text(_formatDuration(_elapsedSeconds), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('Environment Tag:', style: TextStyle(fontSize: 12, color: Color(0xFF64748B))),
+                      Text(_selectedEnvironmentTag ?? 'General / Indoor', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF2563EB))),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('File Size:', style: TextStyle(fontSize: 12, color: Color(0xFF64748B))),
+                      Text(_formatFileSize(fileSize), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () {
+                    Navigator.pop(dialogCtx);
+                    _saveAsDraft(file, fileSize);
+                  },
+                  icon: const Icon(Icons.folder_special_rounded, size: 16, color: Color(0xFF2563EB)),
+                  label: const Text('Keep in Draft', style: TextStyle(fontSize: 12, color: Color(0xFF2563EB), fontWeight: FontWeight.bold)),
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: Color(0xFF2563EB)),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: () {
+                    Navigator.pop(dialogCtx);
+                    _uploadVideoNow(file, fileSize, pos);
+                  },
+                  icon: const Icon(Icons.cloud_upload_rounded, size: 16, color: Colors.white),
+                  label: const Text('Upload Now', style: TextStyle(fontSize: 12, color: Colors.white, fontWeight: FontWeight.bold)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF2563EB),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _saveAsDraft(XFile file, int fileSize) async {
+    final draftId = 'DRAFT-${DateTime.now().millisecondsSinceEpoch.toString().substring(7)}';
+    final draftItem = {
+      'id': draftId,
+      'title': '${_selectedEnvironmentTag ?? "Recorded"} Draft Recording',
+      'env': _selectedEnvironmentTag ?? 'Kitchen',
+      'status': 'Draft',
+      'time': 'Just Now',
+      'duration': _formatDuration(_elapsedSeconds),
+      'size': _formatFileSize(fileSize),
+      'videoPath': file.path,
+    };
+
+    if (kIsWeb) {
+      try {
+        final raw = html.window.localStorage['platform_candidate_drafts'];
+        List<dynamic> draftsList = [];
+        if (raw != null) {
+          draftsList = jsonDecode(raw);
+        }
+        draftsList.insert(0, draftItem);
+        html.window.localStorage['platform_candidate_drafts'] = jsonEncode(draftsList);
+      } catch (e) {
+        debugPrint('Draft save error: $e');
+      }
+    }
+
+    if (mounted) {
+      setState(() {
+        _recordedFile = file;
+        _recordedFileSize = fileSize;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('📂 Video saved to Drafts! View in My Uploads or Home screen.'),
+          backgroundColor: Color(0xFF2563EB),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  Future<void> _uploadVideoNow(XFile file, int fileSize, Position? pos) async {
+    if (mounted) {
+      setState(() {
+        _isFetchingLocation = true;
+      });
+    }
+
     final compResult = await CompressionService.instance.compressVideo(
       inputPath: file.path,
       quality: CompressionQuality.medium,
     );
 
-    // Step 2: Auto-upload compressed video file to backend REST API (saved under uploads/videos/)
     final deviceId = await DeviceService.instance.getDeviceId();
     final uploadRes = await UploadService.instance.uploadVideo(
       filePath: compResult.outputPath,
@@ -234,9 +437,15 @@ class _VideoRecordingScreenState extends State<VideoRecordingScreen> {
 
     final finalVideoId = uploadRes.videoId ?? 'VID-${DateTime.now().millisecondsSinceEpoch.toString().substring(7)}';
 
-    // Step 3: Add to Candidate Uploads history & sync with Admin QC Review queue
     if (kIsWeb) {
       try {
+        final session = await AuthService.restoreSession();
+        final currentEmail = session?['email'] ?? '';
+        final currentUserId = session?['id'] ?? '';
+        final currentName = session?['name'] ?? 'Candidate';
+        final currentVendorName = session?['vendor_name'] ?? session?['vendor'] ?? 'Acme Video Solutions';
+        final currentVendorId = session?['vendor_id'] ?? session?['vendorId'] ?? '';
+
         final raw = html.window.localStorage['platform_qc_submissions'];
         List<dynamic> list = [];
         if (raw != null) {
@@ -245,11 +454,13 @@ class _VideoRecordingScreenState extends State<VideoRecordingScreen> {
         final newSub = {
           'id': finalVideoId,
           'title': '${_selectedEnvironmentTag ?? "Recorded"} Dataset Sample',
-          'candidateId': 'CAN-2024-001',
-          'candidateName': 'Vasavi Kandula',
-          'candidatePhone': '+91 98765 43210',
-          'vendor': 'Acme Video Solutions',
+          'candidateId': currentUserId,
+          'candidateEmail': currentEmail,
+          'candidateName': currentName,
+          'vendor': currentVendorName,
+          'vendorId': currentVendorId,
           'duration': _formatDuration(_elapsedSeconds),
+          'durationSeconds': _elapsedSeconds,
           'score': 95,
           'status': 'Pending',
           'env': _selectedEnvironmentTag ?? 'Kitchen',
@@ -261,9 +472,8 @@ class _VideoRecordingScreenState extends State<VideoRecordingScreen> {
         list.insert(0, newSub);
         html.window.localStorage['platform_qc_submissions'] = jsonEncode(list);
 
-        // Broadcast to all open tabs live
         final bc = html.BroadcastChannel('platform_realtime_channel');
-        bc.postMessage({'type': 'QC_STORE_UPDATED', 'payload': list});
+        bc.postMessage({'type': 'NEW_VIDEO_UPLOADED', 'payload': list});
         bc.close();
       } catch (e) {
         debugPrint('Error syncing submission: $e');
@@ -275,18 +485,18 @@ class _VideoRecordingScreenState extends State<VideoRecordingScreen> {
         _recordedFile = file;
         _recordedFileSize = compResult.compressedSizeBytes;
         _currentPosition = pos;
-        _locationErrorMessage = locationError;
         _isFetchingLocation = false;
       });
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('⚡ Compressed (70% reduction) & Uploaded to Server! Saved in Uploads tab ($finalVideoId) ✓'),
+          content: Text('🚀 Uploaded to Server & Sent to Admin QC! ($finalVideoId) ✓'),
           backgroundColor: AppColors.success,
           behavior: SnackBarBehavior.floating,
-          duration: const Duration(seconds: 4),
         ),
       );
+
+      Navigator.pushNamed(context, AppRoutes.uploadVideo);
     }
   }
 
@@ -449,16 +659,6 @@ class _VideoRecordingScreenState extends State<VideoRecordingScreen> {
                                       fontFeatures: [FontFeature.tabularFigures()],
                                     ),
                                   ),
-                                  const SizedBox(width: 10),
-                                  Text(
-                                    '${_formatDuration(_remainingSeconds)} left',
-                                    style: TextStyle(
-                                      color: _isDanger ? const Color(0xFFFF6B6B) : (_isWarning ? const Color(0xFFFCD34D) : Colors.white70),
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w600,
-                                      fontFeatures: const [FontFeature.tabularFigures()],
-                                    ),
-                                  ),
                                 ],
                               ),
                             ),
@@ -506,6 +706,64 @@ class _VideoRecordingScreenState extends State<VideoRecordingScreen> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  // Prominent Shutter / Record Button
+                  if (_recordedFile == null && !_isFetchingLocation)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 16.0),
+                      child: GestureDetector(
+                        onTap: _isRecording ? _stopRecording : _startRecording,
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 300),
+                          padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 16),
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: _isRecording
+                                  ? [const Color(0xFFEF4444), const Color(0xFFDC2626)]
+                                  : [const Color(0xFFEF4444), const Color(0xFFE11D48)],
+                            ),
+                            borderRadius: BorderRadius.circular(40),
+                            boxShadow: [
+                              BoxShadow(
+                                color: const Color(0xFFEF4444).withValues(alpha: 0.4),
+                                blurRadius: 16,
+                                offset: const Offset(0, 6),
+                              ),
+                            ],
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Container(
+                                width: 22,
+                                height: 22,
+                                decoration: const BoxDecoration(
+                                  color: Colors.white,
+                                  shape: BoxShape.circle,
+                                ),
+                                child: Center(
+                                  child: Icon(
+                                    _isRecording ? Icons.stop_rounded : Icons.circle_rounded,
+                                    size: 14,
+                                    color: const Color(0xFFEF4444),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Text(
+                                _isRecording ? 'STOP RECORDING' : 'START RECORDING',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w900,
+                                  fontSize: 16,
+                                  letterSpacing: 1.0,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+
                   // Hands-Free Voice Control Status Pill Indicator
                   Container(
                     margin: const EdgeInsets.only(bottom: 12),
@@ -609,6 +867,38 @@ class _VideoRecordingScreenState extends State<VideoRecordingScreen> {
     if (_isInitializing) {
       return const Center(
         child: CircularProgressIndicator(color: Colors.white),
+      );
+    }
+
+    // When recording has been stopped, turn off camera preview and display Camera Stopped state
+    if (!_isRecording && _recordedFile != null) {
+      return Container(
+        color: const Color(0xFF0F172A),
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: const BoxDecoration(
+                  color: Color(0xFF1E293B),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.videocam_off_rounded, size: 54, color: Color(0xFFEF4444)),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Camera Feed Stopped 🛑',
+                style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Clip Captured (${_formatDuration(_elapsedSeconds)}) • Ready to Upload / Draft',
+                style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
+              ),
+            ],
+          ),
+        ),
       );
     }
 

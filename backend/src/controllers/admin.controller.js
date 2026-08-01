@@ -59,6 +59,23 @@ class AdminController {
     }
   }
 
+  /**
+   * POST /api/v1/admins/videos/dispatch-qc
+   * Admin 1-Click Dispatch: Divides pending candidate videos evenly among active QC team members
+   */
+  async dispatchVideosToQC(req, res, next) {
+    try {
+      const result = await adminService.dispatchVideosToQC();
+      return res.status(200).json({
+        status: 'success',
+        message: result.message,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async createAdmin(req, res, next) {
     try {
       const { full_name, email, phone, password } = req.body;

@@ -5,6 +5,10 @@
 const express = require('express');
 const router = express.Router();
 const qcTicketController = require('../controllers/qcTicket.controller');
+const { authenticateJWT } = require('../middleware/auth.middleware');
+
+// Protect all QC Ticket Endpoints
+router.use(authenticateJWT);
 
 // Get QC Dashboard Live Database Stats
 router.get('/dashboard-stats', qcTicketController.getDashboardStats);

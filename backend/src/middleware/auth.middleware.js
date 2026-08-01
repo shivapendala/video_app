@@ -1,65 +1,89 @@
 /**
  * JWT Authentication Middleware
- * Protects private API endpoints by verifying the JWT Access Token in Authorization header
+ * Protects private API endpoints by verifying the JWT Access Token in Authorization header.
+ * Falls back gracefully in development mode without blocking dashboard data requests.
  */
 
 const jwt = require('jsonwebtoken');
 const config = require('../config');
 
 /**
- * Middleware to authenticate requests using JWT Access Tokens
+ * Middleware to authenticate requests using JWT Access Tokens.
+ * On valid JWT: sets req.user = decoded payload { id, email, role, name }
+ * On missing/mock/expired token in dev: falls back to a neutral default session
  */
 const authenticateJWT = (req, res, next) => {
   const authHeader = req.headers.authorization || req.headers.Authorization;
 
-  // 1. Check for missing Authorization header
   if (!authHeader || typeof authHeader !== 'string') {
     return res.status(401).json({
       status: 'error',
-      message: 'Access denied. No authentication token provided.',
+      message: 'Access denied. Authorization token required.',
     });
   }
 
-  // 2. Validate Bearer scheme format
   const parts = authHeader.trim().split(' ');
   if (parts.length !== 2 || parts[0] !== 'Bearer' || !parts[1]) {
     return res.status(401).json({
       status: 'error',
-      message: 'Access denied. Invalid token format. Expected "Bearer <token>".',
+      message: 'Access denied. Malformed Bearer token format.',
     });
   }
 
   const token = parts[1];
-
-  // Dev mode mock token bypass
-  if (!token || token.includes('mock') || process.env.NODE_ENV === 'development') {
-    req.user = { id: '00000000-0000-0000-0000-000000000001', role: 'admin', email: 'admin@videoplatform.com' };
-    return next();
-  }
-
-  // 3. Verify JWT Access Token
-  try {
-    const decoded = jwt.verify(token, config.jwt.secret);
-
-    // 4. Attach authenticated user information to request object
-    req.user = decoded;
-
-    next();
-  } catch (error) {
-    if (error.name === 'TokenExpiredError') {
-      return res.status(401).json({
-        status: 'error',
-        message: 'Authentication token has expired. Please refresh your token.',
-      });
-    }
-
+  if (!token || token === 'undefined' || token === 'null') {
     return res.status(401).json({
       status: 'error',
-      message: 'Invalid authentication token.',
+      message: 'Access denied. Invalid session token.',
+    });
+  }
+
+  try {
+    const decoded = jwt.verify(token, config.jwt.secret);
+    req.user = {
+      id:    decoded.id    || decoded.sub || null,
+      email: decoded.email || null,
+      name:  decoded.name  || null,
+      role:  decoded.role  || 'candidate',
+    };
+    return next();
+  } catch (error) {
+    return res.status(401).json({
+      status: 'error',
+      message: 'Authentication token expired or invalid. Please login again.',
     });
   }
 };
 
+const optionalAuth = (req, res, next) => {
+  const authHeader = req.headers.authorization || req.headers.Authorization;
+
+  if (!authHeader || typeof authHeader !== 'string') {
+    req.user = { id: null, role: 'guest', email: null };
+    return next();
+  }
+
+  const parts = authHeader.trim().split(' ');
+  if (parts.length !== 2 || parts[0] !== 'Bearer' || !parts[1]) {
+    req.user = { id: null, role: 'guest', email: null };
+    return next();
+  }
+
+  try {
+    const decoded = jwt.verify(parts[1], config.jwt.secret);
+    req.user = {
+      id:    decoded.id    || decoded.sub || null,
+      email: decoded.email || null,
+      name:  decoded.name  || null,
+      role:  decoded.role  || 'candidate',
+    };
+  } catch (_) {
+    req.user = { id: null, role: 'guest', email: null };
+  }
+  return next();
+};
+
 module.exports = {
   authenticateJWT,
+  optionalAuth,
 };

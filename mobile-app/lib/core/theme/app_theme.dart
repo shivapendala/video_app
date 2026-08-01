@@ -9,6 +9,8 @@ class AppTheme {
     return ThemeData(
       useMaterial3: true,
       brightness: Brightness.light,
+      fontFamily: 'Inter',
+      fontFamilyFallback: const ['Noto Color Emoji', 'Noto Sans', 'Roboto', 'sans-serif'],
       colorScheme: ColorScheme.fromSeed(
         seedColor: AppColors.primary,
         brightness: Brightness.light,

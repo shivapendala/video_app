@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../../core/theme/app_colors.dart';
 import '../../services/device_service.dart';
 import '../../services/upload_service.dart';
+import '../../services/candidate_video_store.dart';
 import '../../widgets/powered_by_footer.dart';
 
 class VideoUploadScreen extends StatefulWidget {
@@ -53,32 +54,16 @@ class _VideoUploadScreenState extends State<VideoUploadScreen> {
     }
   }
 
-  void _loadStoredHistory() {
-    if (kIsWeb) {
-      try {
-        final raw = html.window.localStorage['platform_qc_submissions'];
-        if (raw != null) {
-          final List<dynamic> list = jsonDecode(raw);
-          if (list.isNotEmpty) {
-            setState(() {
-              _uploadsHistory = list.map((item) {
-                return {
-                  'id': item['id'] ?? 'VID-000',
-                  'title': item['title'] ?? 'Uploaded Video',
-                  'env': item['env'] ?? 'Kitchen',
-                  'status': item['status'] == 'Pending' ? 'Pending QC' : (item['status'] ?? 'Approved'),
-                  'date': item['time'] ?? 'Just Now',
-                  'size': item['size'] ?? '10 MB',
-                  'duration': item['duration'] ?? '30:00 Mins',
-                  'reason': item['rejectionReason'] ?? '',
-                };
-              }).toList();
-            });
-          }
-        }
-      } catch (e) {
-        debugPrint('Error loading uploads history: $e');
+  Future<void> _loadStoredHistory() async {
+    try {
+      final videos = await CandidateVideoStore.getUploadedVideos();
+      if (mounted) {
+        setState(() {
+          _uploadsHistory = videos;
+        });
       }
+    } catch (e) {
+      debugPrint('Error loading uploads history: $e');
     }
   }
 
@@ -97,6 +82,14 @@ class _VideoUploadScreenState extends State<VideoUploadScreen> {
         behavior: SnackBarBehavior.floating,
       ),
     );
+  }
+
+  String _getRealtimeUploadTimestamp() {
+    final now = DateTime.now();
+    final hour = now.hour > 12 ? now.hour - 12 : (now.hour == 0 ? 12 : now.hour);
+    final minute = now.minute.toString().padLeft(2, '0');
+    final ampm = now.hour >= 12 ? 'PM' : 'AM';
+    return 'Today, $hour:$minute $ampm';
   }
 
   Future<void> _startUpload() async {
@@ -131,6 +124,8 @@ class _VideoUploadScreenState extends State<VideoUploadScreen> {
     progressTimer.cancel();
 
     if (mounted) {
+      final uploadTimestamp = _getRealtimeUploadTimestamp();
+
       setState(() {
         _isUploading = false;
         _uploadProgress = result.isSuccess ? 1.0 : 0.0;
@@ -146,7 +141,7 @@ class _VideoUploadScreenState extends State<VideoUploadScreen> {
           'title': '${_activeEnvTag ?? "Recorded"} Dataset Sample',
           'env': _activeEnvTag ?? 'Kitchen',
           'status': 'Pending QC',
-          'date': 'Just Now',
+          'date': uploadTimestamp,
           'size': '10.0 MB',
           'duration': '30:00 Mins',
         };
@@ -174,7 +169,7 @@ class _VideoUploadScreenState extends State<VideoUploadScreen> {
               'score': 94,
               'status': 'Pending',
               'env': _activeEnvTag ?? 'Kitchen',
-              'time': 'Just Now',
+              'time': uploadTimestamp,
               'size': '10.0 MB',
               'videoUrl': 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',
               'rejectionReason': '',
@@ -209,6 +204,46 @@ class _VideoUploadScreenState extends State<VideoUploadScreen> {
           ),
         );
       }
+    }
+  }
+
+  Future<void> _saveAsDraft() async {
+    final draftId = 'DRAFT-${DateTime.now().millisecondsSinceEpoch.toString().substring(7)}';
+    final draftItem = {
+      'id': draftId,
+      'title': '${_activeEnvTag ?? "Recorded"} Draft Recording',
+      'env': _activeEnvTag ?? 'Kitchen',
+      'status': 'Draft',
+      'time': 'Saved to Drafts',
+      'date': 'Today',
+      'size': '10.0 MB',
+      'duration': '00:45',
+      'videoPath': _activeVideoPath,
+    };
+
+    if (kIsWeb) {
+      try {
+        final raw = html.window.localStorage['platform_candidate_drafts'];
+        List<dynamic> draftsList = [];
+        if (raw != null) {
+          draftsList = jsonDecode(raw);
+        }
+        draftsList.insert(0, draftItem);
+        html.window.localStorage['platform_candidate_drafts'] = jsonEncode(draftsList);
+      } catch (e) {
+        debugPrint('Draft save error: $e');
+      }
+    }
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Video saved to Drafts! 📂 View in "Draft Videos" card on Home screen.'),
+          backgroundColor: Color(0xFF2563EB),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      Navigator.pop(context);
     }
   }
 
@@ -248,6 +283,83 @@ class _VideoUploadScreenState extends State<VideoUploadScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // New Recording Dispatch / Save Draft Action Card (Only shown when a new unuploaded recorded clip is pending)
+              if (_activeVideoPath.isNotEmpty && _uploadResult == null)
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(18),
+                  margin: const EdgeInsets.only(bottom: 20),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                    boxShadow: [
+                      BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 10, offset: const Offset(0, 3)),
+                    ],
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: const BoxDecoration(color: Color(0xFFEFF6FF), shape: BoxShape.circle),
+                            child: const Icon(Icons.videocam_rounded, color: Color(0xFF2563EB), size: 22),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  _activeVideoPath,
+                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Color(0xFF0F172A)),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                Text('Tag: ${_activeEnvTag ?? "Kitchen"} • 00:45 Mins', style: const TextStyle(fontSize: 12, color: Color(0xFF64748B))),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: _saveAsDraft,
+                              icon: const Icon(Icons.folder_special_rounded, color: Color(0xFF2563EB), size: 18),
+                              label: const Text('Save to Draft', style: TextStyle(color: Color(0xFF2563EB), fontWeight: FontWeight.bold)),
+                              style: OutlinedButton.styleFrom(
+                                side: const BorderSide(color: Color(0xFF2563EB)),
+                                padding: const EdgeInsets.symmetric(vertical: 12),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: ElevatedButton.icon(
+                              onPressed: _isUploading ? null : _startUpload,
+                              icon: _isUploading
+                                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                                  : const Icon(Icons.cloud_upload_rounded, color: Colors.white, size: 18),
+                              label: Text(_isUploading ? 'Uploading...' : 'Upload Now', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF2563EB),
+                                padding: const EdgeInsets.symmetric(vertical: 12),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+
               // Top Summary Stats Banner
               Container(
                 width: double.infinity,

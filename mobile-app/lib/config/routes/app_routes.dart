@@ -4,6 +4,7 @@ import '../../screens/environment/environment_tag_screen.dart';
 import '../../screens/home/home_screen.dart';
 import '../../screens/login/login_screen.dart';
 import '../../screens/login/otp_login_screen.dart';
+import '../../screens/signup/candidate_signup_screen.dart';
 import '../../screens/onboarding/onboarding_screen.dart';
 import '../../screens/permission/camera_permission_screen.dart';
 import '../../screens/qc/mobile_qc_dashboard_screen.dart';
@@ -19,6 +20,7 @@ class AppRoutes {
   static const String splash = '/';
   static const String onboarding = '/onboarding';
   static const String login = '/login';
+  static const String candidateSignup = '/candidate-signup';
   static const String otpLogin = '/otp-login';
   static const String home = '/home';
   static const String cameraPermission = '/camera-permission';
@@ -35,6 +37,7 @@ class AppRoutes {
       splash: (context) => const SplashScreen(),
       onboarding: (context) => const OnboardingScreen(),
       login: (context) => const LoginScreen(),
+      candidateSignup: (context) => const CandidateSignupScreen(),
       otpLogin: (context) => const OTPLoginScreen(),
       home: (context) => const HomeScreen(),
       cameraPermission: (context) => const CameraPermissionScreen(),
@@ -53,6 +56,8 @@ class AppRoutes {
         return MaterialPageRoute(builder: (_) => const SplashScreen());
       case login:
         return MaterialPageRoute(builder: (_) => const LoginScreen());
+      case candidateSignup:
+        return MaterialPageRoute(builder: (_) => const CandidateSignupScreen());
       case otpLogin:
         return MaterialPageRoute(builder: (_) => const OTPLoginScreen());
       case home:

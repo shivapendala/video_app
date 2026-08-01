@@ -71,50 +71,85 @@ class VideoService {
     }
   }
 
-  async uploadVideo({ video_id, candidate_id, vendor_id, file }) {
-    const relativePath = path.join('uploads', 'videos', file.filename).replace(/\\/g, '/');
+  async uploadVideo({ video_id, candidate_id, vendor_id, file, environment_tag, title }) {
+    const relativePath = path.join('uploads', 'videos', file.filename || file.originalname).replace(/\\/g, '/');
     try {
+      // 1. Fetch valid candidate and vendor IDs from database if omitted or synthetic
+      let validCandidateId = candidate_id;
+      let validVendorId = vendor_id;
+
+      if (!validCandidateId || validCandidateId === 'CAN-2024-001' || validCandidateId === 'c1000000-0000-0000-0000-000000000001') {
+        const candRes = await db.query('SELECT id, vendor_id FROM candidates WHERE is_active = TRUE ORDER BY created_at ASC LIMIT 1');
+        if (candRes.rowCount > 0) {
+          validCandidateId = candRes.rows[0].id;
+          validVendorId = candRes.rows[0].vendor_id;
+        }
+      }
+
+      if (!validVendorId) {
+        const venRes = await db.query('SELECT id FROM vendors WHERE is_active = TRUE ORDER BY created_at ASC LIMIT 1');
+        if (venRes.rowCount > 0) {
+          validVendorId = venRes.rows[0].id;
+        }
+      }
+
       let videoRecord;
-      if (video_id) {
+      if (video_id && !video_id.startsWith('vid-')) {
         const updateQuery = `
-          UPDATE videos SET file_name = $1, local_path = $2, file_size = $3, upload_date = NOW(), status = 'PENDING_QC', updated_at = NOW()
-          WHERE id = $4 AND deleted_at IS NULL RETURNING *
+          UPDATE videos SET file_name = $1, local_path = $2, file_size = $3, upload_date = NOW(), status = 'PENDING_QC', environment_tag = COALESCE($4, environment_tag), updated_at = NOW()
+          WHERE id = $5 AND deleted_at IS NULL RETURNING *
         `;
-        const result = await db.query(updateQuery, [file.originalname, relativePath, file.size, video_id]);
-        videoRecord = result.rows[0];
-      } else {
-        const insertQuery = `
-          INSERT INTO videos (candidate_id, vendor_id, file_name, local_path, file_size, upload_date, status)
-          VALUES ($1, $2, $3, $4, $5, NOW(), 'PENDING_QC') RETURNING *
-        `;
-        const result = await db.query(insertQuery, [candidate_id || 'c1000000-0000-0000-0000-000000000001', vendor_id || 'v0000000-0000-0000-0000-000000000001', file.originalname, relativePath, file.size]);
+        const result = await db.query(updateQuery, [file.originalname || file.filename, relativePath, file.size || 10485760, environment_tag, video_id]);
         videoRecord = result.rows[0];
       }
 
-      // Auto-create QC Ticket and trigger notifications
+      if (!videoRecord) {
+        const insertQuery = `
+          INSERT INTO videos (candidate_id, vendor_id, title, file_name, local_path, file_size, environment_tag, upload_date, status, duration)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), 'PENDING_QC', 15) RETURNING *
+        `;
+        const videoTitle = title || `${environment_tag || "Recorded"} Dataset Video`;
+        const result = await db.query(insertQuery, [
+          validCandidateId || '20000000-0000-4000-8000-000000000001',
+          validVendorId || '10000000-0000-4000-8000-000000000001',
+          videoTitle,
+          file.originalname || file.filename,
+          relativePath,
+          file.size || 10485760,
+          environment_tag || 'Kitchen',
+        ]);
+        videoRecord = result.rows[0];
+      }
+
+      // Auto-create QC Ticket and trigger equal reviewer distribution
       if (videoRecord) {
-        await qcTicketService.createTicketForVideo(videoRecord).catch(() => {});
+        await qcTicketService.createTicketForVideo(videoRecord).catch((err) => console.error('QC Ticket Error:', err.message));
 
         await notificationService.createNotification({
           user_id: videoRecord.candidate_id,
           role: 'candidate',
-          title: 'Video Uploaded Successfully',
-          message: 'Your video file has been stored and assigned to the QC Team for inspection.',
+          title: 'Video Uploaded Successfully 🎉',
+          message: `Your video "${videoRecord.title}" has been uploaded and sent for Quality Check.`,
           video_id: videoRecord.id,
           type: 'video_uploaded',
           color: '#F59E0B',
+        }).catch(() => {});
+
+        await notificationService.createNotification({
+          user_id: null,
+          role: 'admin',
+          title: 'New Video Uploaded for QC Review 📹',
+          message: `New video "${videoRecord.title}" (${videoRecord.environment_tag}) submitted for QC review.`,
+          video_id: videoRecord.id,
+          type: 'qc_assigned',
+          color: '#2563EB',
         }).catch(() => {});
       }
 
       return videoRecord;
     } catch (e) {
-      return {
-        id: video_id || `vid-${Date.now()}`,
-        file_name: file.originalname,
-        local_path: relativePath,
-        file_size: file.size,
-        status: 'PENDING_QC',
-      };
+      console.error('Error uploading video to PostgreSQL:', e.message);
+      throw e;
     }
   }
 
@@ -151,20 +186,47 @@ class VideoService {
         WHERE v.deleted_at IS NULL
       `;
       const params = [];
-      if (candidate_id) { params.push(candidate_id); selectQuery += ` AND v.candidate_id = $${params.length}`; }
-      if (vendor_id) { params.push(vendor_id); selectQuery += ` AND v.vendor_id = $${params.length}`; }
-      if (status) { params.push(status); selectQuery += ` AND LOWER(v.status) = LOWER($${params.length})`; }
+      if (candidate_id) {
+        params.push(candidate_id);
+        countQuery += ` AND candidate_id = $${params.length}`;
+        selectQuery += ` AND v.candidate_id = $${params.length}`;
+      }
+      if (vendor_id) {
+        params.push(vendor_id);
+        countQuery += ` AND vendor_id = $${params.length}`;
+        selectQuery += ` AND v.vendor_id = $${params.length}`;
+      }
+      if (status) {
+        params.push(status);
+        countQuery += ` AND LOWER(status) = LOWER($${params.length})`;
+        selectQuery += ` AND LOWER(v.status) = LOWER($${params.length})`;
+      }
 
-      const countResult = await db.query(countQuery, []);
+      const countResult = await db.query(countQuery, params);
       const total_records = parseInt(countResult.rows[0]?.count || 0, 10);
+      const pageNum = Math.max(1, parseInt(page || 1, 10));
+      const offsetNum = (pageNum - 1) * limitNum;
       selectQuery += ` ORDER BY v.created_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
-      params.push(limitNum, 0);
+      const queryParams = [...params, limitNum, offsetNum];
 
-      const result = await db.query(selectQuery, params);
-      return { items: result.rows, pagination: { total_records, page: 1, limit: limitNum, total_pages: 1 } };
+      const result = await db.query(selectQuery, queryParams);
+      const total_pages = Math.ceil(total_records / limitNum) || 1;
+      return { items: result.rows, pagination: { total_records, page: pageNum, limit: limitNum, total_pages } };
     } catch (e) {
       return { items: [], pagination: { total_records: 0, page: 1, limit: limitNum, total_pages: 1 } };
     }
+  }
+
+  /**
+   * Delete / Soft Delete Video
+   */
+  async deleteVideo(id) {
+    const query = `UPDATE videos SET deleted_at = NOW(), status = 'DELETED' WHERE id = $1 RETURNING id`;
+    const res = await db.query(query, [id]);
+    if (res.rows.length === 0) {
+      throw new Error('Video not found');
+    }
+    return { message: 'Video deleted successfully', id };
   }
 
   /**

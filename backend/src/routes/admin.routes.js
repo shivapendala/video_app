@@ -6,17 +6,24 @@
 const express = require('express');
 const router = express.Router();
 const adminController = require('../controllers/admin.controller');
+const { authenticateJWT } = require('../middleware/auth.middleware');
 const {
   validateIdParam,
   validateCreateAdmin,
   validateUpdateAdmin,
 } = require('../validators/admin.validator');
 
+// Require Authentication for Admin Routes
+router.use(authenticateJWT);
+
 // GET /api/v1/admins/dashboard-stats - Live Database Metrics
 router.get('/dashboard-stats', (req, res, next) => adminController.getDashboardStats(req, res, next));
 
 // GET /api/v1/admins/qc-queue - Get QC_APPROVED video queue for Admin sign-off
 router.get('/qc-queue', (req, res, next) => adminController.getQCApprovedQueue(req, res, next));
+
+// POST /api/v1/admins/videos/dispatch-qc - Divide & Send Pending Videos to QC Team Members
+router.post('/videos/dispatch-qc', (req, res, next) => adminController.dispatchVideosToQC(req, res, next));
 
 // POST /api/v1/admins/videos/:videoId/approve - Admin Approve Video
 router.post('/videos/:videoId/approve', (req, res, next) => adminController.approveVideo(req, res, next));

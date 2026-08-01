@@ -14,8 +14,9 @@ class OTPService {
       throw error;
     }
 
-    // Generate 6-digit OTP (for dev mode, code is 123456)
-    const otpCode = '123456';
+    // Generate secure 6-digit random OTP code
+    const isDev = process.env.NODE_ENV === 'development';
+    const otpCode = isDev ? '123456' : Math.floor(100000 + Math.random() * 900000).toString();
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
 
     try {
@@ -40,7 +41,7 @@ class OTPService {
     return {
       success: true,
       phone: cleanPhone,
-      message: 'OTP sent successfully. (Dev mode code: 123456)',
+      message: 'OTP sent successfully',
       expiresInSeconds: 300,
     };
   }
@@ -58,8 +59,28 @@ class OTPService {
       throw error;
     }
 
-    // Verify code (accept 123456 in dev mode)
-    if (cleanOTP !== '123456' && cleanOTP !== '654321') {
+    const isDev = process.env.NODE_ENV === 'development';
+    let isValidOTP = isDev && (cleanOTP === '123456' || cleanOTP === '654321');
+
+    if (!isValidOTP) {
+      try {
+        const checkRes = await db.query(
+          `SELECT o.id, o.candidate_id 
+           FROM otp_logs o 
+           JOIN candidates c ON c.id = o.candidate_id 
+           WHERE c.phone = $1 AND o.otp_code = $2 AND o.is_verified = FALSE AND o.expires_at > NOW()
+           ORDER BY o.created_at DESC LIMIT 1`,
+          [cleanPhone, cleanOTP]
+        );
+
+        if (checkRes.rows.length > 0) {
+          isValidOTP = true;
+          await db.query('UPDATE otp_logs SET is_verified = TRUE WHERE id = $1', [checkRes.rows[0].id]);
+        }
+      } catch (e) {}
+    }
+
+    if (!isValidOTP) {
       const error = new Error('Invalid or expired OTP code. Please try again.');
       error.statusCode = 401;
       throw error;

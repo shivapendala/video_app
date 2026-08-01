@@ -132,6 +132,20 @@ class VideoController {
       next(error);
     }
   }
+
+  async deleteVideo(req, res, next) {
+    try {
+      const { id } = req.params;
+      const result = await videoService.deleteVideo(id);
+
+      return res.status(200).json({
+        status: 'success',
+        message: result.message || 'Video deleted successfully',
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 module.exports = new VideoController();

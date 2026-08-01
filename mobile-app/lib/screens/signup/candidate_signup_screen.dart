@@ -4,67 +4,67 @@ import '../../core/theme/app_colors.dart';
 import '../../services/auth_service.dart';
 import '../../widgets/powered_by_footer.dart';
 
-class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key});
+class CandidateSignupScreen extends StatefulWidget {
+  const CandidateSignupScreen({super.key});
 
   @override
-  State<LoginScreen> createState() => _LoginScreenState();
+  State<CandidateSignupScreen> createState() => _CandidateSignupScreenState();
 }
 
-class _LoginScreenState extends State<LoginScreen> {
+class _CandidateSignupScreenState extends State<CandidateSignupScreen> {
   final _formKey = GlobalKey<FormState>();
-  final TextEditingController _identifierController = TextEditingController();
+  final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
+  final TextEditingController _vendorCodeController = TextEditingController(text: 'VEN-001');
+  final TextEditingController _fullNameController = TextEditingController();
+  final TextEditingController _phoneController = TextEditingController();
 
   bool _isLoading = false;
   bool _obscurePassword = true;
 
   @override
   void dispose() {
-    _identifierController.dispose();
+    _emailController.dispose();
     _passwordController.dispose();
+    _vendorCodeController.dispose();
+    _fullNameController.dispose();
+    _phoneController.dispose();
     super.dispose();
   }
 
-  Future<void> _handleLogin([String? customIdentifier, String? customPassword]) async {
-    final identifier = customIdentifier ?? _identifierController.text;
-    final password = customPassword ?? _passwordController.text;
-
-    if (customIdentifier == null && !_formKey.currentState!.validate()) return;
+  Future<void> _handleSignup() async {
+    if (!_formKey.currentState!.validate()) return;
 
     FocusScope.of(context).unfocus();
     setState(() => _isLoading = true);
 
-    final res = await AuthService.login(identifier, password);
+    final res = await AuthService.signupCandidate(
+      email: _emailController.text,
+      password: _passwordController.text,
+      vendorCode: _vendorCodeController.text,
+      fullName: _fullNameController.text.isNotEmpty ? _fullNameController.text : null,
+      phone: _phoneController.text.isNotEmpty ? _phoneController.text : null,
+    );
 
     if (!mounted) return;
     setState(() => _isLoading = false);
 
     if (res['success'] == true) {
-      final role = (res['role'] ?? 'candidate').toString().toLowerCase();
-
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Authenticated as ${role.toUpperCase()}! Opening app...'),
-          backgroundColor: AppColors.primary,
+          content: Text(res['message'] ?? 'Registration successful! Opening Candidate Portal...'),
+          backgroundColor: AppColors.success,
           behavior: SnackBarBehavior.floating,
           duration: const Duration(seconds: 2),
         ),
       );
 
-      if (role == 'admin') {
-        Navigator.pushReplacementNamed(context, AppRoutes.adminDashboard);
-      } else if (role == 'qc_team' || role == 'qc' || role == 'qc_reviewer' || role.contains('qc')) {
-        Navigator.pushReplacementNamed(context, AppRoutes.qcDashboard);
-      } else if (role == 'vendor') {
-        Navigator.pushReplacementNamed(context, AppRoutes.vendorDashboard);
-      } else {
-        Navigator.pushReplacementNamed(context, AppRoutes.home);
-      }
+      // Redirect immediately to Home Candidate Dashboard
+      Navigator.pushReplacementNamed(context, AppRoutes.home);
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(res['message'] ?? 'Authentication failed. Please check credentials.'),
+          content: Text(res['message'] ?? 'Signup failed. Please try again.'),
           backgroundColor: AppColors.error,
           behavior: SnackBarBehavior.floating,
         ),
@@ -72,62 +72,24 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  void _showForgotPasswordDialog() {
-    final resetController = TextEditingController();
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text('Reset Password', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Color(0xFF0F172A))),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Enter your registered email address or username to receive password reset instructions.', style: TextStyle(fontSize: 13, color: Color(0xFF64748B))),
-            const SizedBox(height: 16),
-            TextField(
-              controller: resetController,
-              decoration: InputDecoration(
-                hintText: 'Enter Email / Username',
-                prefixIcon: const Icon(Icons.email_outlined, color: Color(0xFF3B82F6)),
-                filled: true,
-                fillColor: const Color(0xFFF8FAFC),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFFE2E8F0))),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel', style: TextStyle(color: Color(0xFF94A3B8))),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              final text = resetController.text.trim();
-              Navigator.pop(ctx);
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(text.isNotEmpty
-                      ? 'Password reset link sent to $text!'
-                      : 'Password reset link sent to your registered email address!'),
-                  backgroundColor: const Color(0xFF16A34A),
-                  behavior: SnackBarBehavior.floating,
-                ),
-              );
-            },
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2563EB), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
-            child: const Text('Send Reset Link', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-          ),
-        ],
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
+      appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_rounded, color: AppColors.textPrimaryLight),
+          onPressed: () {
+            if (Navigator.canPop(context)) {
+              Navigator.pop(context);
+            } else {
+              Navigator.pushReplacementNamed(context, AppRoutes.login);
+            }
+          },
+        ),
+        backgroundColor: Colors.white,
+        elevation: 0,
+      ),
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24.0),
@@ -136,7 +98,7 @@ class _LoginScreenState extends State<LoginScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Blue Video Camera Icon Badge
+                // Header Badge
                 Center(
                   child: Container(
                     width: 68,
@@ -144,26 +106,26 @@ class _LoginScreenState extends State<LoginScreen> {
                     margin: const EdgeInsets.only(bottom: 20),
                     decoration: BoxDecoration(
                       gradient: const LinearGradient(
-                        colors: [Color(0xFF3B82F6), Color(0xFF1D4ED8)],
+                        colors: [Color(0xFF10B981), Color(0xFF059669)],
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
                       ),
                       borderRadius: BorderRadius.circular(20),
                       boxShadow: [
                         BoxShadow(
-                          color: const Color(0xFF3B82F6).withOpacity(0.35),
+                          color: const Color(0xFF10B981).withValues(alpha: 0.35),
                           blurRadius: 20,
                           offset: const Offset(0, 8),
                         ),
                       ],
                     ),
-                    child: const Icon(Icons.videocam_rounded, color: Colors.white, size: 36),
+                    child: const Icon(Icons.person_add_rounded, color: Colors.white, size: 36),
                   ),
                 ),
 
                 const Center(
                   child: Text(
-                    'Welcome Back!',
+                    'Candidate Registration',
                     style: TextStyle(
                       fontSize: 26,
                       fontWeight: FontWeight.w800,
@@ -175,7 +137,8 @@ class _LoginScreenState extends State<LoginScreen> {
                 const SizedBox(height: 6),
                 const Center(
                   child: Text(
-                    'Sign in to continue to your account',
+                    'Sign up with your Vendor Code to start dataset recording',
+                    textAlign: TextAlign.center,
                     style: TextStyle(
                       fontSize: 14,
                       color: AppColors.textSecondaryLight,
@@ -185,46 +148,45 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
                 const SizedBox(height: 28),
 
-                // Email Input Label & Field
+                // Email Field
                 Row(
                   children: const [
-                    Icon(Icons.email_outlined, size: 18, color: Color(0xFF3B82F6)),
+                    Icon(Icons.email_outlined, size: 18, color: Color(0xFF10B981)),
                     SizedBox(width: 6),
                     Text(
-                      'Email',
+                      'Email Address',
                       style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
                     ),
                   ],
                 ),
                 const SizedBox(height: 8),
                 TextFormField(
-                  controller: _identifierController,
+                  controller: _emailController,
                   keyboardType: TextInputType.emailAddress,
                   decoration: InputDecoration(
-                    hintText: 'Enter your Email',
+                    hintText: 'Enter candidate email (e.g. candidate@gmail.com)',
                     prefixIcon: const Icon(Icons.email_outlined, color: Color(0xFF94A3B8)),
                     filled: true,
                     fillColor: const Color(0xFFF8FAFC),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(14),
-                      borderSide: const BorderSide(color: Color(0xFFDBEAFE)),
+                      borderSide: const BorderSide(color: Color(0xFFD1FAE5)),
                     ),
                     enabledBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(14),
-                      borderSide: const BorderSide(color: Color(0xFFDBEAFE)),
+                      borderSide: const BorderSide(color: Color(0xFFD1FAE5)),
                     ),
                     focusedBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(14),
-                      borderSide: const BorderSide(color: Color(0xFF3B82F6), width: 1.5),
+                      borderSide: const BorderSide(color: Color(0xFF10B981), width: 1.5),
                     ),
                     contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
                   ),
                   validator: (val) {
                     if (val == null || val.trim().isEmpty) {
-                      return 'Please enter email address';
+                      return 'Please enter candidate email address';
                     }
-                    final emailRegex = RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$');
-                    if (!emailRegex.hasMatch(val.trim())) {
+                    if (!val.contains('@')) {
                       return 'Please enter a valid email address';
                     }
                     return null;
@@ -232,10 +194,10 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
                 const SizedBox(height: 18),
 
-                // Password Input Label & Field
+                // Password Field
                 Row(
                   children: const [
-                    Icon(Icons.lock_outline_rounded, size: 18, color: Color(0xFF3B82F6)),
+                    Icon(Icons.lock_outline_rounded, size: 18, color: Color(0xFF10B981)),
                     SizedBox(width: 6),
                     Text(
                       'Password',
@@ -248,7 +210,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   controller: _passwordController,
                   obscureText: _obscurePassword,
                   decoration: InputDecoration(
-                    hintText: 'Enter your Password',
+                    hintText: 'Create candidate password',
                     prefixIcon: const Icon(Icons.lock_outline_rounded, color: Color(0xFF94A3B8)),
                     suffixIcon: IconButton(
                       icon: Icon(
@@ -263,60 +225,115 @@ class _LoginScreenState extends State<LoginScreen> {
                     fillColor: const Color(0xFFF8FAFC),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(14),
-                      borderSide: const BorderSide(color: Color(0xFFDBEAFE)),
+                      borderSide: const BorderSide(color: Color(0xFFD1FAE5)),
                     ),
                     enabledBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(14),
-                      borderSide: const BorderSide(color: Color(0xFFDBEAFE)),
+                      borderSide: const BorderSide(color: Color(0xFFD1FAE5)),
                     ),
                     focusedBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(14),
-                      borderSide: const BorderSide(color: Color(0xFF3B82F6), width: 1.5),
+                      borderSide: const BorderSide(color: Color(0xFF10B981), width: 1.5),
                     ),
                     contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
                   ),
                   validator: (val) {
                     if (val == null || val.trim().isEmpty) {
-                      return 'Please enter password';
+                      return 'Please enter a password';
+                    }
+                    if (val.trim().length < 4) {
+                      return 'Password must be at least 4 characters';
                     }
                     return null;
                   },
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(height: 18),
 
-                // Forgot Password Link
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: TextButton(
-                    onPressed: _showForgotPasswordDialog,
-                    style: TextButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-                      minimumSize: Size.zero,
-                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                // Vendor Code Field
+                Row(
+                  children: const [
+                    Icon(Icons.storefront_outlined, size: 18, color: Color(0xFF10B981)),
+                    SizedBox(width: 6),
+                    Text(
+                      'Vendor Code',
+                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
                     ),
-                    child: const Text(
-                      'Forgot Password?',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                        color: Color(0xFF2563EB),
-                      ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                TextFormField(
+                  controller: _vendorCodeController,
+                  decoration: InputDecoration(
+                    hintText: 'Enter Vendor Code (e.g. VEN-001)',
+                    prefixIcon: const Icon(Icons.storefront_outlined, color: Color(0xFF94A3B8)),
+                    filled: true,
+                    fillColor: const Color(0xFFF8FAFC),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: const BorderSide(color: Color(0xFFD1FAE5)),
                     ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: const BorderSide(color: Color(0xFFD1FAE5)),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: const BorderSide(color: Color(0xFF10B981), width: 1.5),
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                  ),
+                  validator: (val) {
+                    if (val == null || val.trim().isEmpty) {
+                      return 'Please enter Vendor Code (e.g. VEN-001)';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 18),
+
+                // Full Name (Optional)
+                Row(
+                  children: const [
+                    Icon(Icons.person_outline_rounded, size: 18, color: Color(0xFF64748B)),
+                    SizedBox(width: 6),
+                    Text(
+                      'Full Name (Optional)',
+                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF64748B)),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                TextFormField(
+                  controller: _fullNameController,
+                  decoration: InputDecoration(
+                    hintText: 'Enter Full Name',
+                    prefixIcon: const Icon(Icons.person_outline_rounded, color: Color(0xFF94A3B8)),
+                    filled: true,
+                    fillColor: const Color(0xFFF8FAFC),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
                   ),
                 ),
-                const SizedBox(height: 20),
+                const SizedBox(height: 24),
 
-                // Login Button
+                // Submit Candidate Sign Up Button
                 ElevatedButton(
-                  onPressed: _isLoading ? null : () => _handleLogin(),
+                  onPressed: _isLoading ? null : _handleSignup,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF2563EB),
+                    backgroundColor: const Color(0xFF10B981),
                     minimumSize: const Size.fromHeight(52),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(14),
                     ),
                     elevation: 3,
-                    shadowColor: const Color(0xFF2563EB).withOpacity(0.4),
+                    shadowColor: const Color(0xFF10B981).withValues(alpha: 0.4),
                   ),
                   child: _isLoading
                       ? const SizedBox(
@@ -325,36 +342,42 @@ class _LoginScreenState extends State<LoginScreen> {
                           child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
                         )
                       : const Text(
-                          'Login',
+                          'Sign Up as Candidate',
                           style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
                         ),
                 ),
-                const SizedBox(height: 24),
+                const SizedBox(height: 20),
 
-                // Don't Have An Account? Candidate Sign Up Redirect Link
+                // Bottom Login Redirect Link
                 Center(
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       const Text(
-                        "Don't have an account? ",
+                        'Already have an account? ',
                         style: TextStyle(fontSize: 14, color: Color(0xFF64748B), fontWeight: FontWeight.w500),
                       ),
                       GestureDetector(
-                        onTap: () => Navigator.pushNamed(context, AppRoutes.candidateSignup),
+                        onTap: () {
+                          if (Navigator.canPop(context)) {
+                            Navigator.pop(context);
+                          } else {
+                            Navigator.pushReplacementNamed(context, AppRoutes.login);
+                          }
+                        },
                         child: const Text(
-                          'Sign Up',
+                          'Log In',
                           style: TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.bold,
-                            color: Color(0xFF10B981),
+                            color: Color(0xFF2563EB),
                           ),
                         ),
                       ),
                     ],
                   ),
                 ),
-                const SizedBox(height: 24),
+                const SizedBox(height: 28),
                 const PoweredByFooter(),
               ],
             ),

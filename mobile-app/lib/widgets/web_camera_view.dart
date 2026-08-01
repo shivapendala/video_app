@@ -19,6 +19,7 @@ class WebLiveCameraView extends StatefulWidget {
 
 class _WebLiveCameraViewState extends State<WebLiveCameraView> {
   late String _viewTypeId;
+  html.MediaStream? _activeWebcamStream;
 
   @override
   void initState() {
@@ -66,14 +67,15 @@ class _WebLiveCameraViewState extends State<WebLiveCameraView> {
             },
             'audio': true,
           }).then((stream) {
+            _activeWebcamStream = stream;
             videoElement.srcObject = stream;
             videoElement.play();
           }).catchError((err) {
             html.window.navigator.mediaDevices?.getUserMedia({'video': true}).then((stream) {
+              _activeWebcamStream = stream;
               videoElement.srcObject = stream;
               videoElement.play();
             }).catchError((err2) {
-              // On unsecure HTTP IPs where Chrome blocks webcam, fallback to live HD video stream
               fallbackToLiveStream();
             });
           });
@@ -84,6 +86,44 @@ class _WebLiveCameraViewState extends State<WebLiveCameraView> {
         return container;
       });
     }
+  }
+
+  @override
+  void didUpdateWidget(WebLiveCameraView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!widget.isRecording) {
+      _stopWebcamTracks();
+    }
+  }
+
+  void _stopWebcamTracks() {
+    try {
+      if (_activeWebcamStream != null) {
+        for (var track in _activeWebcamStream!.getTracks()) {
+          track.stop();
+        }
+        _activeWebcamStream = null;
+      }
+      final videoElement = html.document.getElementById('live-webcam-element') as html.VideoElement?;
+      if (videoElement != null) {
+        videoElement.pause();
+        final stream = videoElement.srcObject;
+        if (stream != null && stream is html.MediaStream) {
+          for (var track in stream.getTracks()) {
+            track.stop();
+          }
+          videoElement.srcObject = null;
+        }
+      }
+    } catch (e) {
+      debugPrint('Error stopping webcam stream tracks: $e');
+    }
+  }
+
+  @override
+  void dispose() {
+    _stopWebcamTracks();
+    super.dispose();
   }
 
   @override

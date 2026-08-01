@@ -24,11 +24,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       'subtitle': 'Your videos are encrypted and stored securely.',
       'icon': Icons.cloud_upload_rounded,
     },
-    {
-      'title': 'Earn More with Transparency',
-      'subtitle': 'Track your earnings and get paid on time.',
-      'icon': Icons.account_balance_wallet_rounded,
-    },
   ];
 
   void _onNext() {
