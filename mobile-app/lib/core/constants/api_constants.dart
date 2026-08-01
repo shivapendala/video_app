@@ -17,7 +17,8 @@ class ApiConstants {
       return 'http://$host:5000';
     }
     if (defaultTargetPlatform == TargetPlatform.android) {
-      return 'http://10.178.34.58:5000';
+      // Production: Hostinger VPS backend via subpath proxy
+      return 'https://elevateiq-softtech.com/video-platform-api';
     }
     return 'http://localhost:5000';
   }
